@@ -257,14 +257,16 @@ def animate(
     """Combined animation: route plot on top with moving truck/drone markers,
     Gantt below with a moving time cursor.
 
-    `duration` is the wall-clock length of the animation in seconds; defaults
-    to the simulated completion time (so the animation runs at 1x sim-time).
+    `duration` is the wall-clock length of the animation in seconds. If left
+    unset it defaults to the simulated completion time, clamped to [3, 20] sec
+    so generators with real-world units (e.g. ~18000 sec sim) don't render
+    a multi-hour MP4.
     """
     coords = coords_for(sol.instance, coords)
     sched = build_schedule(sol)
     end_t = sched.completion
     if duration is None:
-        duration = max(3.0, end_t)
+        duration = min(20.0, max(3.0, end_t))
     n_frames = max(2, int(duration * fps))
 
     fig, (ax_route, ax_gantt) = plt.subplots(
