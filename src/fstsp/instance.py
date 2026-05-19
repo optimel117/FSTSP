@@ -12,6 +12,10 @@ class Instance:
     Nodes are integer ids 0..N-1 where 0 is the depot. The truck starts and ends
     at the depot. Customers are nodes 1..N-1 by default but `customers` can be
     overridden if the instance includes drone-ineligible nodes.
+
+    `coords` are optional 2D positions used for visualisation. When the
+    instance is built from a distance matrix alone the field stays None and
+    the viz code falls back to a classical-MDS embedding.
     """
 
     depot: int
@@ -21,6 +25,7 @@ class Instance:
     drone_endurance: float
     sl: float
     sr: float
+    coords: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         n = self.t.shape[0]
@@ -28,6 +33,8 @@ class Instance:
             raise ValueError("travel-time matrices must be square and same shape")
         if self.depot in self.customers:
             raise ValueError("depot must not appear in customers")
+        if self.coords is not None and self.coords.shape != (n, 2):
+            raise ValueError(f"coords shape {self.coords.shape} != ({n}, 2)")
 
     @property
     def n_nodes(self) -> int:

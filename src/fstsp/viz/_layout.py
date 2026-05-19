@@ -28,10 +28,16 @@ def classical_mds(D: np.ndarray, n_components: int = 2) -> np.ndarray:
 
 
 def coords_for(inst: Instance, coords: np.ndarray | None = None) -> np.ndarray:
-    """Resolve (n, 2) coords for an Instance — passthrough or MDS fallback."""
+    """Resolve (n, 2) coords for an Instance.
+
+    Precedence: explicit `coords` argument > `inst.coords` > classical-MDS
+    embedding of the truck travel-time matrix.
+    """
     if coords is not None:
         coords = np.asarray(coords, dtype=float)
         if coords.shape != (inst.n_nodes, 2):
             raise ValueError(f"coords shape {coords.shape} != ({inst.n_nodes}, 2)")
         return coords
+    if inst.coords is not None:
+        return np.asarray(inst.coords, dtype=float)
     return classical_mds(inst.t)
