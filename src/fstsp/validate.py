@@ -20,8 +20,10 @@ def validate(sol: Solution) -> None:
       * each customer is served exactly once;
       * sortie launch and rendezvous nodes occur in the truck route in the
         correct order, with no two sorties overlapping;
-      * each sortie respects the drone endurance limit (Boccia constraint 3.25:
-        d[i,h] + d[h,j] <= Dtl - SR).
+      * each sortie respects the drone endurance limit. The drone is airborne
+        for max(drone flight, truck segment) and must land within Dtl - SR, so
+        BOTH the drone flight (d[i,h] + d[h,j]) and the truck segment between
+        launch and rendezvous are bounded by Dtl - SR (Boccia constraints).
     """
     inst = sol.instance
     route = sol.truck_route
@@ -62,11 +64,20 @@ def validate(sol: Solution) -> None:
             )
         intervals.append((lp, rp))
 
+        # Boccia endurance: the drone is airborne for max(drone flight, truck
+        # segment) and must land within Dtl - SR, so BOTH legs are bounded.
+        limit = inst.drone_endurance - inst.sr
         drone_leg = inst.d[s.launch, s.customer] + inst.d[s.customer, s.rendezvous]
-        if drone_leg > inst.drone_endurance - inst.sr + 1e-9:
+        if drone_leg > limit + 1e-9:
             raise FeasibilityError(
-                f"sortie ({s.launch}->{s.customer}->{s.rendezvous}) violates endurance: "
-                f"{drone_leg:.4f} > {inst.drone_endurance - inst.sr:.4f}"
+                f"sortie ({s.launch}->{s.customer}->{s.rendezvous}) violates endurance "
+                f"(drone flight): {drone_leg:.4f} > {limit:.4f}"
+            )
+        truck_leg = sum(inst.t[route[k], route[k + 1]] for k in range(lp, rp))
+        if truck_leg > limit + 1e-9:
+            raise FeasibilityError(
+                f"sortie ({s.launch}->{s.customer}->{s.rendezvous}) violates endurance "
+                f"(truck segment): {truck_leg:.4f} > {limit:.4f}"
             )
 
     intervals.sort()

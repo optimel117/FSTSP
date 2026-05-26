@@ -87,20 +87,26 @@ def _protected_nodes(sol: Solution) -> set[int]:
 
 
 def _feasible_pairs(route: list[int], h: int, inst: Instance) -> list[tuple[int, int]]:
-    """Launch/rendezvous ``(i, j)`` pairs whose drone leg fits the endurance bound.
+    """Launch/rendezvous ``(i, j)`` pairs satisfying the single-sortie endurance.
 
-    Pre-filters only on the single-sortie endurance limit; overlap with other
+    Pre-filters on both endurance bounds (drone flight and truck segment, each
+    <= Dtl - SR, matching :func:`fstsp.validate.validate`); overlap with other
     sorties and route ordering are left to :func:`validate`. The rendezvous is
     never the final depot (see the module docstring).
     """
     limit = inst.drone_endurance - inst.sr + EPS
     last = len(route) - 1
+    # prefix[k] = truck travel time from route[0] to route[k]; lets us read the
+    # truck segment between any two positions in O(1).
+    prefix = [0.0] * len(route)
+    for k in range(1, len(route)):
+        prefix[k] = prefix[k - 1] + inst.t[route[k - 1], route[k]]
     pairs: list[tuple[int, int]] = []
     for a in range(last):  # launch may be the starting depot (a == 0)
         i = route[a]
         for b in range(a + 1, last):  # rendezvous strictly before the final depot
             j = route[b]
-            if inst.d[i, h] + inst.d[h, j] <= limit:
+            if inst.d[i, h] + inst.d[h, j] <= limit and prefix[b] - prefix[a] <= limit:
                 pairs.append((i, j))
     return pairs
 

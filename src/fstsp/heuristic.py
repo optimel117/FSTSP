@@ -127,12 +127,22 @@ def _calc_cost_uav(
     # Algorithm 4 allows (i, j) within h's own subroute provided i precedes j and neither is h.
     candidate_nodes = [n for n in nodes if n != h] if h in nodes else nodes
 
+    # Truck segment between launch and rendezvous, measured on the route with h
+    # removed (h becomes drone-served). Needed for the truck-segment endurance bound.
+    removed = [n for n in route if n != h]
+
     best: Move | None = None
     for a_idx in range(len(candidate_nodes) - 1):
         for b_idx in range(a_idx + 1, len(candidate_nodes)):
             i_node, j_node = candidate_nodes[a_idx], candidate_nodes[b_idx]
             drone_leg = inst.d[i_node, h] + inst.d[h, j_node]
             if drone_leg > inst.drone_endurance - inst.sr + EPS:
+                continue
+            # Boccia: the drone is airborne until the rendezvous, so the truck
+            # segment launch->rendezvous must also fit within Dtl - SR.
+            ip, jp = removed.index(i_node), removed.index(j_node)
+            truck_seg = sum(inst.t[removed[k], removed[k + 1]] for k in range(ip, jp))
+            if truck_seg > inst.drone_endurance - inst.sr + EPS:
                 continue
             j_pos = sol.position_of(j_node)
             T_prime_j = _truck_arrival_with_h_removed(sol, h, target_position=j_pos)

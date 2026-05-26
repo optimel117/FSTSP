@@ -117,12 +117,20 @@ def test_heuristic_improves_over_initial_tsp() -> None:
     assert sol.total_completion_time() < initial.total_completion_time()
 
 
-def test_heuristic_at_most_as_bad_as_thesis_solution() -> None:
-    """Murray-Chu is greedy. With our tie-breaking it finds a solution at least as
-    good as the two-sortie outcome reported in the thesis (14.1)."""
+def test_heuristic_reaches_145_under_boccia_endurance() -> None:
+    """Under the full Boccia endurance model (both the drone flight AND the truck
+    segment bounded by Dtl - SR), greedy Murray-Chu reaches 14.5 on this instance.
+
+    It commits to the single sortie 3->2->5 first and then has no improving move.
+    The better two-sortie solution (14.1) is still feasible but greedy doesn't
+    find it. Note: an earlier drone-flight-only check let greedy reach 14.1 via
+    sortie 0->2->6, whose truck segment (5.8) exceeds the limit (4.8) and is
+    therefore infeasible for the MILP -- see validate()'s endurance checks.
+    """
     instance, route = thesis_4_1_2()
     sol = murray_chu(instance, route)
-    assert sol.total_completion_time() <= 14.1 + 1e-9
+    assert math.isclose(sol.total_completion_time(), 14.5, abs_tol=1e-9)
+    validate(sol)
 
 
 @pytest.mark.parametrize(
