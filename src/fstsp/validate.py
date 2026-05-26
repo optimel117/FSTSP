@@ -73,3 +73,12 @@ def validate(sol: Solution) -> None:
     for (a1, b1), (a2, b2) in pairwise(intervals):
         if b1 > a2:
             raise FeasibilityError(f"sorties overlap on truck route: {(a1, b1)} and {(a2, b2)}")
+
+
+def is_feasible(sol: Solution) -> bool:
+    """Non-raising counterpart to :func:`validate` (handy in tight search loops)."""
+    try:
+        validate(sol)
+    except FeasibilityError:
+        return False
+    return True
