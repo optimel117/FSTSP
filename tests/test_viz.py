@@ -119,6 +119,25 @@ def test_animate_constructs_and_updates(solved, tmp_path):
     plt.close("all")
 
 
+def test_plot_convergence_smoke():
+    from fstsp import initial_truck_solution, random_euclidean, simulated_annealing
+
+    inst = random_euclidean(n_customers=8, area_side_km=12.0, seed=4)
+    result = simulated_annealing(initial_truck_solution(inst), iterations=600, seed=0, record=True)
+    ax = vmpl.plot_convergence(result, title="convergence")
+    assert ax.has_data()
+    plt.close(ax.figure)
+
+
+def test_plot_convergence_requires_trace():
+    from fstsp import initial_truck_solution, random_euclidean, simulated_annealing
+
+    inst = random_euclidean(n_customers=8, area_side_km=12.0, seed=4)
+    result = simulated_annealing(initial_truck_solution(inst), iterations=200, seed=0)
+    with pytest.raises(ValueError, match="trace"):
+        vmpl.plot_convergence(result)
+
+
 def test_plotly_plot_route_smoke(solved):
     pytest.importorskip("plotly")
     from fstsp.viz import plotly as vplotly

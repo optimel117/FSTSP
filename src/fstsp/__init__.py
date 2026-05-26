@@ -6,7 +6,7 @@ from fstsp.instances import (
     random_euclidean,
     two_opt,
 )
-from fstsp.sa import SAResult, simulated_annealing
+from fstsp.sa import SAResult, SATrace, simulated_annealing
 from fstsp.solution import Solution, Sortie
 from fstsp.validate import FeasibilityError, is_feasible, validate
 
@@ -14,6 +14,7 @@ __all__ = [
     "FeasibilityError",
     "Instance",
     "SAResult",
+    "SATrace",
     "Solution",
     "Sortie",
     "initial_truck_solution",

@@ -22,11 +22,15 @@ from fstsp.viz._timing import (
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
+    from fstsp.sa import SAResult
+
 
 TRUCK_COLOR = "#1f77b4"
 DRONE_COLOR = "#d62728"
 DEPOT_COLOR = "#2ca02c"
 NODE_EDGE = "#333333"
+BEST_COLOR = "#08306b"
+TEMP_COLOR = "#ff7f0e"
 
 
 def plot_route(
@@ -321,3 +325,48 @@ def animate(
         return truck_marker, drone_marker, cursor, time_text
 
     return FuncAnimation(fig, update, frames=n_frames, interval=1000 / fps, blit=False)
+
+
+def plot_convergence(
+    result: SAResult,
+    *,
+    ax: Axes | None = None,
+    title: str | None = None,
+    show_temperature: bool = True,
+) -> Axes:
+    """Plot SA convergence: current and best-so-far objective against iteration.
+
+    Requires a result from ``simulated_annealing(..., record=True)``. The thin
+    line is the accepted current objective (the exploration), the bold line is
+    the best found so far. With `show_temperature`, the geometric cooling
+    schedule is drawn on a twin axis.
+    """
+    trace = result.trace
+    if trace is None:
+        raise ValueError("result has no trace; run simulated_annealing(..., record=True)")
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8, 4.5))
+
+    it = trace.iteration
+    ax.plot(it, trace.z_current, color=TRUCK_COLOR, lw=0.6, alpha=0.45, label="current")
+    ax.plot(it, trace.z_best, color=BEST_COLOR, lw=1.8, label="best so far")
+    ax.set_xlabel("iteration")
+    ax.set_ylabel("completion time (s)")
+    ax.set_xlim(it[0], it[-1])
+    ax.spines["top"].set_visible(False)
+    handles, labels = ax.get_legend_handles_labels()
+
+    if show_temperature:
+        ax2 = ax.twinx()
+        ax2.plot(it, trace.temperature, color=TEMP_COLOR, lw=1.2, ls="--", label="temperature")
+        ax2.set_ylabel("temperature")
+        ax2.set_ylim(bottom=0)
+        ax2.spines["top"].set_visible(False)
+        h2, l2 = ax2.get_legend_handles_labels()
+        handles += h2
+        labels += l2
+
+    ax.legend(handles, labels, loc="upper right", frameon=False, fontsize=9)
+    if title:
+        ax.set_title(title)
+    return ax

@@ -35,6 +35,21 @@ EPS = 1e-9
 
 
 @dataclass
+class SATrace:
+    """Per-iteration scalars recorded when ``simulated_annealing(record=True)``.
+
+    All four lists are parallel and length ``iterations``. ``temperature[q]`` is
+    the temperature used for iteration ``q``'s acceptance test; ``z_current`` and
+    ``z_best`` are the end-of-iteration objective values.
+    """
+
+    iteration: list[int]
+    z_current: list[float]
+    z_best: list[float]
+    temperature: list[float]
+
+
+@dataclass
 class SAResult:
     """Outcome of a simulated-annealing run."""
 
@@ -46,6 +61,7 @@ class SAResult:
     infeasible_moves: int
     iterations: int
     runtime_seconds: float
+    trace: SATrace | None = None
 
 
 def _clone(sol: Solution) -> Solution:
@@ -169,6 +185,7 @@ def simulated_annealing(
     tau_start: float = 0.01,
     tau_final: float = 0.001,
     seed: int = 0,
+    record: bool = False,
 ) -> SAResult:
     """Minimise total completion time by simulated annealing.
 
@@ -182,6 +199,9 @@ def simulated_annealing(
     `seed` controls only the SA search; instance generation is seeded separately
     (see :func:`fstsp.random_euclidean`), mirroring the legacy script's split of
     ``--instance-seed`` and ``--sa-seed``.
+
+    Set `record=True` to attach an :class:`SATrace` (per-iteration current/best
+    objective and temperature) to the result, e.g. for a convergence plot.
     """
     if iterations <= 0:
         raise ValueError("iterations must be positive")
@@ -204,27 +224,32 @@ def simulated_annealing(
     temperature = t_start
 
     accepted = improved = infeasible = 0
+    trace = SATrace([], [], [], []) if record else None
 
-    for _ in range(iterations):
+    for q in range(1, iterations + 1):
         candidate = _clone(current)
         _apply_random_move(candidate, rng)
 
-        if not is_feasible(candidate):
+        if is_feasible(candidate):
+            z_candidate = candidate.total_completion_time()
+            delta = z_candidate - z_current
+            if delta <= 0 or rng.random() <= math.exp(-delta / temperature):
+                current = candidate
+                z_current = z_candidate
+                accepted += 1
+                if delta <= 0:
+                    improved += 1
+                if z_current < z_best:
+                    best = _clone(current)
+                    z_best = z_current
+        else:
             infeasible += 1
-            temperature *= alpha
-            continue
 
-        z_candidate = candidate.total_completion_time()
-        delta = z_candidate - z_current
-        if delta <= 0 or rng.random() <= math.exp(-delta / temperature):
-            current = candidate
-            z_current = z_candidate
-            accepted += 1
-            if delta <= 0:
-                improved += 1
-            if z_current < z_best:
-                best = _clone(current)
-                z_best = z_current
+        if trace is not None:
+            trace.iteration.append(q)
+            trace.z_current.append(z_current)
+            trace.z_best.append(z_best)
+            trace.temperature.append(temperature)
 
         temperature *= alpha
 
@@ -237,4 +262,5 @@ def simulated_annealing(
         infeasible_moves=infeasible,
         iterations=iterations,
         runtime_seconds=time.perf_counter() - start,
+        trace=trace,
     )

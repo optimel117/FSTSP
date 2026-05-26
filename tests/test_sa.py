@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from fstsp import (
@@ -74,6 +76,26 @@ def test_sa_result_counters_are_consistent():
     assert result.infeasible_moves + result.accepted_moves <= result.iterations
     assert result.improved_moves <= result.accepted_moves
     assert result.runtime_seconds >= 0.0
+
+
+def test_sa_no_trace_by_default():
+    sol = initial_truck_solution(_small_instance())
+    result = simulated_annealing(sol, iterations=500, seed=0)
+    assert result.trace is None
+
+
+def test_sa_trace_is_recorded_and_consistent():
+    sol = initial_truck_solution(_small_instance())
+    result = simulated_annealing(sol, iterations=800, seed=0, record=True)
+    tr = result.trace
+    assert tr is not None
+    assert len(tr.iteration) == len(tr.z_current) == len(tr.z_best) == len(tr.temperature) == 800
+    assert tr.iteration[0] == 1 and tr.iteration[-1] == 800
+    # best-so-far is monotonically non-increasing and ends at the reported best
+    assert all(b2 <= b1 + 1e-9 for b1, b2 in pairwise(tr.z_best))
+    assert tr.z_best[-1] == result.best_objective
+    # temperature cools monotonically
+    assert all(t2 <= t1 + 1e-9 for t1, t2 in pairwise(tr.temperature))
 
 
 def test_sa_rejects_bad_arguments():
