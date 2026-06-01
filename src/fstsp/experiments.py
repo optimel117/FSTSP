@@ -13,8 +13,10 @@ is the CLI that writes a CSV, prints tables, and draws figures.
 
 from __future__ import annotations
 
+import csv
 import time
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from fstsp.heuristic import murray_chu
 from fstsp.instance import Instance
@@ -108,16 +110,20 @@ def run_suite(
     milp_max_n: int = 12,
     env=None,
     progress=None,
+    skip: set[tuple[str, int, int]] | None = None,
 ) -> list[RunRecord]:
     """Run the full experiment bank.
 
     Small sizes get MILP + heuristic + SA; large sizes get heuristic + SA. The
     MILP is also skipped for any size above ``milp_max_n``. ``progress`` is an
-    optional callback ``(record) -> None`` for live logging.
+    optional callback ``(record) -> None`` for live logging / incremental writes.
+    ``skip`` is a set of ``(method, n, seed)`` keys to omit (for resuming a partial
+    run); the instance is only generated when at least one of its methods is due.
     """
     from fstsp.instances import random_euclidean
 
     ikwargs = instance_kwargs or {}
+    done = skip or set()
     records: list[RunRecord] = []
 
     def emit(rec: RunRecord) -> None:
@@ -129,11 +135,20 @@ def run_suite(
     run_milp_for = set(small_sizes)
     for n in all_sizes:
         for seed in range(seeds):
+            need_milp = (
+                n in run_milp_for and n <= milp_max_n and ("milp", n, seed) not in done
+            )
+            need_heur = ("heuristic", n, seed) not in done
+            need_sa = ("sa", n, seed) not in done
+            if not (need_milp or need_heur or need_sa):
+                continue
             inst = random_euclidean(n_customers=n, seed=seed, **ikwargs)
-            if n in run_milp_for and n <= milp_max_n:
+            if need_milp:
                 emit(run_milp(inst, n, seed, time_limit=milp_time_limit, env=env))
-            emit(run_heuristic(inst, n, seed))
-            emit(run_sa(inst, n, seed, iterations=sa_iterations, sa_seed=seed))
+            if need_heur:
+                emit(run_heuristic(inst, n, seed))
+            if need_sa:
+                emit(run_sa(inst, n, seed, iterations=sa_iterations, sa_seed=seed))
     return records
 
 
@@ -163,3 +178,33 @@ def optimality_gaps(records: list[RunRecord]) -> list[dict]:
 
 def record_to_dict(rec: RunRecord) -> dict:
     return asdict(rec)
+
+
+def _record_from_row(row: dict) -> RunRecord:
+    def opt_float(v: str) -> float | None:
+        return float(v) if v not in ("", "None") else None
+
+    return RunRecord(
+        method=row["method"],
+        n=int(row["n"]),
+        seed=int(row["seed"]),
+        objective=opt_float(row["objective"]),
+        runtime_s=float(row["runtime_s"]),
+        status=row["status"],
+        proven_optimal=row["proven_optimal"] == "True",
+        mip_gap=opt_float(row["mip_gap"]),
+        n_drone_customers=int(row["n_drone_customers"]),
+        n_sorties=int(row["n_sorties"]),
+        feasible=row["feasible"] == "True",
+    )
+
+
+def read_csv(path: str | Path) -> list[RunRecord]:
+    """Load previously written records (for resuming / summarising a finished run)."""
+    with Path(path).open(newline="") as f:
+        return [_record_from_row(row) for row in csv.DictReader(f)]
+
+
+def done_keys(records: list[RunRecord]) -> set[tuple[str, int, int]]:
+    """(method, n, seed) keys already present, for ``run_suite(skip=...)``."""
+    return {(r.method, r.n, r.seed) for r in records}

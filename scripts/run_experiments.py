@@ -19,7 +19,9 @@ from pathlib import Path
 from fstsp.experiments import (
     CSV_FIELDS,
     RunRecord,
+    done_keys,
     optimality_gaps,
+    read_csv,
     record_to_dict,
     run_suite,
 )
@@ -39,15 +41,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--milp-max-n", type=int, default=12, help="largest n to run the MILP on")
     p.add_argument("--out", type=Path, default=Path("experiments"), help="output directory")
     p.add_argument("--no-plots", action="store_true", help="skip figure generation")
+    p.add_argument(
+        "--fresh", action="store_true", help="ignore any existing results.csv (don't resume)"
+    )
     return p.parse_args()
-
-
-def write_csv(records: list[RunRecord], path: Path) -> None:
-    with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        for rec in records:
-            writer.writerow(record_to_dict(rec))
 
 
 def _fmt(x: float | None, width: int = 9, prec: int = 1) -> str:
@@ -147,6 +144,16 @@ def make_plots(records: list[RunRecord], out: Path, *, sa_iters: int) -> None:
 def main() -> None:
     args = parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
+    csv_path = args.out / "results.csv"
+
+    # Resume: load existing rows and skip the (method, n, seed) keys already done.
+    existing: list[RunRecord] = []
+    if csv_path.exists() and not args.fresh:
+        existing = read_csv(csv_path)
+        print(f"resuming: {len(existing)} rows already in {csv_path}")
+    elif args.fresh and csv_path.exists():
+        csv_path.unlink()
+    skip = done_keys(existing)
 
     env = None
     small = _sizes(args.small)
@@ -158,31 +165,42 @@ def main() -> None:
         print(f"warning: no Gurobi env ({exc}); skipping MILP rows")
         small = ()
 
+    # Append each record as it lands, flushing so a crash/disconnect keeps progress.
+    f = csv_path.open("a", newline="")
+    writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+    if not existing:
+        writer.writeheader()
     n_done = 0
 
     def progress(rec: RunRecord) -> None:
         nonlocal n_done
         n_done += 1
+        writer.writerow(record_to_dict(rec))
+        f.flush()
         obj = f"{rec.objective:.1f}" if rec.objective is not None else "none"
         print(f"[{n_done:>4}] {rec.method:>10} n={rec.n:>2} seed={rec.seed} "
               f"obj={obj:>9} rt={rec.runtime_s:6.2f}s")
 
-    records = run_suite(
-        small_sizes=small,
-        large_sizes=_sizes(args.large),
-        seeds=args.seeds,
-        sa_iterations=args.sa_iters,
-        milp_time_limit=args.milp_time_limit,
-        milp_max_n=args.milp_max_n,
-        env=env,
-        progress=progress,
-    )
-    if env is not None:
-        env.dispose()
+    try:
+        run_suite(
+            small_sizes=small,
+            large_sizes=_sizes(args.large),
+            seeds=args.seeds,
+            sa_iterations=args.sa_iters,
+            milp_time_limit=args.milp_time_limit,
+            milp_max_n=args.milp_max_n,
+            env=env,
+            progress=progress,
+            skip=skip,
+        )
+    finally:
+        f.close()
+        if env is not None:
+            env.dispose()
 
-    csv_path = args.out / "results.csv"
-    write_csv(records, csv_path)
-    print(f"\nwrote {len(records)} rows -> {csv_path}")
+    # Summarise / plot from the full CSV (existing + newly appended).
+    records = read_csv(csv_path)
+    print(f"\n{len(records)} rows total -> {csv_path}")
     print_summary(records)
 
     if not args.no_plots:
