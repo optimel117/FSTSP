@@ -286,15 +286,12 @@ def _solve(
             launch_leg + return_leg - truck_during <= sigma[h], name=f"wait_{h}"
         )
 
-    # ---- single-drone validity ----------------------------------------------
-    for v in C:
-        model.addConstr(
-            theta[v]
-            + gp.quicksum(omega[h, v] for h in C if h != v)
-            + gp.quicksum(delta[h, v] for h in C if h != v)
-            <= 1,
-            name=f"node_drone_once_{v}",
-        )
+    # A node may serve as the rendezvous of one sortie and the launch of the next
+    # (the single drone lands and is immediately relaunched -- see thesis Fig 4.4).
+    # That is enforced as legal by (3.22)/(3.23) (a drone-served customer can't also
+    # be a launch/rendezvous) plus arc-disjoint gamma paths (3.18, so sorties never
+    # overlap). No further node-exclusivity constraint is added: one would forbid
+    # chained sorties and make the MILP suboptimal.
 
     # ---- solve --------------------------------------------------------------
     if time_limit is not None:
