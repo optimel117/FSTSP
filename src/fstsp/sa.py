@@ -15,9 +15,9 @@ Feasibility, however, follows the package (Boccia) convention
 comparable with :func:`fstsp.heuristic.murray_chu` rather than bit-identical to
 the legacy numbers.
 
-A sortie is never rendezvoused on the final depot: :meth:`Solution.position_of`
-resolves the depot to its first occurrence (index 0), so only interior nodes are
-valid rendezvous points. Launching from the starting depot is fine.
+A sortie may launch from the start depot and may rendezvous at the end-depot:
+the route runs ``[depot, ..., end_depot]`` with two distinct ids for the depot,
+so :meth:`Solution.position_of` resolves each unambiguously.
 """
 
 from __future__ import annotations
@@ -91,8 +91,8 @@ def _feasible_pairs(route: list[int], h: int, inst: Instance) -> list[tuple[int,
 
     Pre-filters on both endurance bounds (drone flight and truck segment, each
     <= Dtl - SR, matching :func:`fstsp.validate.validate`); overlap with other
-    sorties and route ordering are left to :func:`validate`. The rendezvous is
-    never the final depot (see the module docstring).
+    sorties and route ordering are left to :func:`validate`. The rendezvous may be
+    the end-depot (the second copy of the depot that closes the route).
     """
     limit = inst.drone_endurance - inst.sr + EPS
     last = len(route) - 1
@@ -100,13 +100,14 @@ def _feasible_pairs(route: list[int], h: int, inst: Instance) -> list[tuple[int,
     # truck segment between any two positions in O(1).
     prefix = [0.0] * len(route)
     for k in range(1, len(route)):
-        prefix[k] = prefix[k - 1] + inst.t[route[k - 1], route[k]]
+        prefix[k] = prefix[k - 1] + inst.truck_time(route[k - 1], route[k])
     pairs: list[tuple[int, int]] = []
     for a in range(last):  # launch may be the starting depot (a == 0)
         i = route[a]
-        for b in range(a + 1, last):  # rendezvous strictly before the final depot
+        for b in range(a + 1, last + 1):  # rendezvous may be the end-depot (b == last)
             j = route[b]
-            if inst.d[i, h] + inst.d[h, j] <= limit and prefix[b] - prefix[a] <= limit:
+            drone_ok = inst.drone_time(i, h) + inst.drone_time(h, j) <= limit
+            if drone_ok and prefix[b] - prefix[a] <= limit:
                 pairs.append((i, j))
     return pairs
 

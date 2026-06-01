@@ -41,7 +41,7 @@ def test_iter1_timing_with_sortie_5_2_4() -> None:
     instance, _ = thesis_4_1_2()
     sol = Solution(
         instance=instance,
-        truck_route=[0, 3, 6, 5, 1, 4, 0],
+        truck_route=[0, 3, 6, 5, 1, 4, instance.end_depot],
         sorties=[Sortie(launch=5, customer=2, rendezvous=4)],
     )
     expected = {0: 0.0, 3: 3.4, 6: 5.8, 5: 8.1, 1: 9.8, 4: 11.3}
@@ -56,7 +56,7 @@ def test_thesis_two_sortie_solution_matches_fig_4_4() -> None:
     instance, _ = thesis_4_1_2()
     sol = Solution(
         instance=instance,
-        truck_route=[0, 3, 5, 1, 4, 0],
+        truck_route=[0, 3, 5, 1, 4, instance.end_depot],
         sorties=[Sortie(3, 6, 5), Sortie(5, 2, 4)],
     )
     expected = {0: 0.0, 3: 3.4, 5: 7.5, 1: 9.4, 4: 10.9}
@@ -96,7 +96,7 @@ def test_iter2_sync_saving_for_h1_in_uav_subroute() -> None:
     instance, _ = thesis_4_1_2()
     sol = Solution(
         instance=instance,
-        truck_route=[0, 3, 6, 5, 1, 4, 0],
+        truck_route=[0, 3, 6, 5, 1, 4, instance.end_depot],
         sorties=[Sortie(launch=5, customer=2, rendezvous=4)],
     )
     T = sol.truck_arrival_times()
@@ -142,7 +142,7 @@ def test_two_sortie_solution_arrival_per_node(node: int, expected: float) -> Non
     instance, _ = thesis_4_1_2()
     sol = Solution(
         instance=instance,
-        truck_route=[0, 3, 5, 1, 4, 0],
+        truck_route=[0, 3, 5, 1, 4, instance.end_depot],
         sorties=[Sortie(3, 6, 5), Sortie(5, 2, 4)],
     )
     T = sol.truck_arrival_times()

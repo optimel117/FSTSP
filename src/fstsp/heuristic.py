@@ -74,7 +74,11 @@ def _calc_savings(sol: Solution, h: int, T: list[float], subroutes: list[Subrout
     pos_h = sol.position_of(h)
     i_node = route[pos_h - 1]
     j_node = route[pos_h + 1]
-    savings = inst.t[i_node, h] + inst.t[h, j_node] - inst.t[i_node, j_node]
+    savings = (
+        inst.truck_time(i_node, h)
+        + inst.truck_time(h, j_node)
+        - inst.truck_time(i_node, j_node)
+    )
 
     sub = _subroute_containing(subroutes, pos_h)
     if sub is not None and sub.sortie is not None:
@@ -84,7 +88,9 @@ def _calc_savings(sol: Solution, h: int, T: list[float], subroutes: list[Subrout
         h_prime = s.customer
         T_prime_b = _truck_arrival_with_h_removed(sol, h, target_position=sub.positions[-1])
         T_a = T[sol.position_of(a)]
-        sync_saving = T_prime_b - (T_a + inst.d[a, h_prime] + inst.d[h_prime, b] + inst.sr)
+        sync_saving = T_prime_b - (
+            T_a + inst.drone_time(a, h_prime) + inst.drone_time(h_prime, b) + inst.sr
+        )
         savings = min(savings, sync_saving)
     return savings
 
@@ -99,12 +105,18 @@ def _calc_cost_truck(
     nodes = [route[p] for p in sub.positions]
     if h in nodes:
         return None  # not a useful move within h's own subroute via this path
-    truck_subroute_time = sum(inst.t[nodes[k], nodes[k + 1]] for k in range(len(nodes) - 1))
+    truck_subroute_time = sum(
+        inst.truck_time(nodes[k], nodes[k + 1]) for k in range(len(nodes) - 1)
+    )
 
     best: Move | None = None
     for k in range(len(nodes) - 1):
         i_node, j_node = nodes[k], nodes[k + 1]
-        cost = inst.t[i_node, h] + inst.t[h, j_node] - inst.t[i_node, j_node]
+        cost = (
+            inst.truck_time(i_node, h)
+            + inst.truck_time(h, j_node)
+            - inst.truck_time(i_node, j_node)
+        )
         if cost >= savings:
             continue
         # Endurance: existing UAV must still complete its sortie while the truck takes
@@ -135,13 +147,13 @@ def _calc_cost_uav(
     for a_idx in range(len(candidate_nodes) - 1):
         for b_idx in range(a_idx + 1, len(candidate_nodes)):
             i_node, j_node = candidate_nodes[a_idx], candidate_nodes[b_idx]
-            drone_leg = inst.d[i_node, h] + inst.d[h, j_node]
+            drone_leg = inst.drone_time(i_node, h) + inst.drone_time(h, j_node)
             if drone_leg > inst.drone_endurance - inst.sr + EPS:
                 continue
             # Boccia: the drone is airborne until the rendezvous, so the truck
             # segment launch->rendezvous must also fit within Dtl - SR.
             ip, jp = removed.index(i_node), removed.index(j_node)
-            truck_seg = sum(inst.t[removed[k], removed[k + 1]] for k in range(ip, jp))
+            truck_seg = sum(inst.truck_time(removed[k], removed[k + 1]) for k in range(ip, jp))
             if truck_seg > inst.drone_endurance - inst.sr + EPS:
                 continue
             j_pos = sol.position_of(j_node)

@@ -61,7 +61,7 @@ def test_nearest_neighbour_route_is_valid_tour():
     inst = random_euclidean(n_customers=12, seed=5)
     route = nearest_neighbour_route(inst)
     assert route[0] == inst.depot
-    assert route[-1] == inst.depot
+    assert route[-1] == inst.end_depot
     assert sorted(route[1:-1]) == list(inst.customers)
 
 
@@ -70,11 +70,11 @@ def test_two_opt_does_not_worsen_route():
     nn = nearest_neighbour_route(inst)
 
     def cost(r):
-        return sum(inst.t[r[k], r[k + 1]] for k in range(len(r) - 1))
+        return sum(inst.truck_time(r[k], r[k + 1]) for k in range(len(r) - 1))
 
     improved = two_opt(nn, inst)
     assert sorted(improved[1:-1]) == list(inst.customers)
-    assert improved[0] == inst.depot and improved[-1] == inst.depot
+    assert improved[0] == inst.depot and improved[-1] == inst.end_depot
     assert cost(improved) <= cost(nn) + 1e-9
 
 
@@ -84,7 +84,7 @@ def test_initial_truck_solution_is_feasible():
     validate(sol)  # raises FeasibilityError if not feasible
     assert sol.sorties == []
     assert sol.truck_route[0] == inst.depot
-    assert sol.truck_route[-1] == inst.depot
+    assert sol.truck_route[-1] == inst.end_depot
 
 
 def test_instance_rejects_wrong_coords_shape():

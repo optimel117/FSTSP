@@ -28,16 +28,22 @@ def classical_mds(D: np.ndarray, n_components: int = 2) -> np.ndarray:
 
 
 def coords_for(inst: Instance, coords: np.ndarray | None = None) -> np.ndarray:
-    """Resolve (n, 2) coords for an Instance.
+    """Resolve coords for an Instance, indexable by every route node.
 
-    Precedence: explicit `coords` argument > `inst.coords` > classical-MDS
-    embedding of the truck travel-time matrix.
+    Precedence for the physical nodes: explicit `coords` argument > `inst.coords`
+    > classical-MDS embedding of the truck travel-time matrix. The result has
+    ``n_nodes + 1`` rows: the trailing row mirrors the depot so the synthetic
+    ``inst.end_depot`` id can be indexed directly (e.g. an arc into the end-depot
+    or a sortie rendezvous there).
     """
     if coords is not None:
         coords = np.asarray(coords, dtype=float)
+        if coords.shape == (inst.n_nodes + 1, 2):
+            return coords  # already resolved (idempotent: callers may re-pass it)
         if coords.shape != (inst.n_nodes, 2):
             raise ValueError(f"coords shape {coords.shape} != ({inst.n_nodes}, 2)")
-        return coords
-    if inst.coords is not None:
-        return np.asarray(inst.coords, dtype=float)
-    return classical_mds(inst.t)
+    elif inst.coords is not None:
+        coords = np.asarray(inst.coords, dtype=float)
+    else:
+        coords = classical_mds(inst.t)
+    return np.vstack([coords, coords[inst.depot]])

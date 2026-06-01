@@ -105,13 +105,15 @@ class Solution:
             if k == 0:
                 arrival[k] = 0.0
             else:
-                arrival[k] = ready[k - 1] + inst.t[route[k - 1], route[k]]
+                arrival[k] = ready[k - 1] + inst.truck_time(route[k - 1], route[k])
             ready[k] = arrival[k]
             if k in rendezvous_pos:
                 s = rendezvous_pos[k]
                 lp = self.position_of(s.launch)
                 drone_arr = (
-                    ready[lp] + inst.d[s.launch, s.customer] + inst.d[s.customer, s.rendezvous]
+                    ready[lp]
+                    + inst.drone_time(s.launch, s.customer)
+                    + inst.drone_time(s.customer, s.rendezvous)
                 )
                 ready[k] = max(ready[k], drone_arr) + inst.sr
             if k in launch_pos:

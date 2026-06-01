@@ -28,8 +28,8 @@ def validate(sol: Solution) -> None:
     inst = sol.instance
     route = sol.truck_route
 
-    if not route or route[0] != inst.depot or route[-1] != inst.depot:
-        raise FeasibilityError("truck route must start and end at the depot")
+    if not route or route[0] != inst.depot or route[-1] != inst.end_depot:
+        raise FeasibilityError("truck route must start at the depot and end at the end-depot")
 
     truck_customers = [n for n in route[1:-1] if n in inst.customers]
     drone_customers = [s.customer for s in sol.sorties]
@@ -67,13 +67,15 @@ def validate(sol: Solution) -> None:
         # Boccia endurance: the drone is airborne for max(drone flight, truck
         # segment) and must land within Dtl - SR, so BOTH legs are bounded.
         limit = inst.drone_endurance - inst.sr
-        drone_leg = inst.d[s.launch, s.customer] + inst.d[s.customer, s.rendezvous]
+        drone_leg = inst.drone_time(s.launch, s.customer) + inst.drone_time(
+            s.customer, s.rendezvous
+        )
         if drone_leg > limit + 1e-9:
             raise FeasibilityError(
                 f"sortie ({s.launch}->{s.customer}->{s.rendezvous}) violates endurance "
                 f"(drone flight): {drone_leg:.4f} > {limit:.4f}"
             )
-        truck_leg = sum(inst.t[route[k], route[k + 1]] for k in range(lp, rp))
+        truck_leg = sum(inst.truck_time(route[k], route[k + 1]) for k in range(lp, rp))
         if truck_leg > limit + 1e-9:
             raise FeasibilityError(
                 f"sortie ({s.launch}->{s.customer}->{s.rendezvous}) violates endurance "

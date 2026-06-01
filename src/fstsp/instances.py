@@ -75,7 +75,8 @@ def random_euclidean(
 
 
 def nearest_neighbour_route(inst: Instance) -> list[int]:
-    """Greedy nearest-neighbour TSP tour, starting and ending at the depot."""
+    """Greedy nearest-neighbour TSP tour, starting at the depot and ending at the
+    end-depot."""
     unvisited = set(inst.customers)
     route = [inst.depot]
     current = inst.depot
@@ -84,18 +85,18 @@ def nearest_neighbour_route(inst: Instance) -> list[int]:
         route.append(nxt)
         unvisited.remove(nxt)
         current = nxt
-    route.append(inst.depot)
+    route.append(inst.end_depot)
     return route
 
 
-def _route_cost(route: list[int], t: np.ndarray) -> float:
-    return float(sum(t[route[k], route[k + 1]] for k in range(len(route) - 1)))
+def _route_cost(route: list[int], inst: Instance) -> float:
+    return float(sum(inst.truck_time(route[k], route[k + 1]) for k in range(len(route) - 1)))
 
 
 def two_opt(route: list[int], inst: Instance) -> list[int]:
     """First-improvement 2-opt on a closed tour. Leaves the depot endpoints fixed."""
     best = route[:]
-    best_cost = _route_cost(best, inst.t)
+    best_cost = _route_cost(best, inst)
     improved = True
     while improved:
         improved = False
@@ -103,7 +104,7 @@ def two_opt(route: list[int], inst: Instance) -> list[int]:
         for i in range(1, n - 2):
             for k in range(i + 1, n - 1):
                 candidate = best[:i] + best[i : k + 1][::-1] + best[k + 1 :]
-                cand_cost = _route_cost(candidate, inst.t)
+                cand_cost = _route_cost(candidate, inst)
                 if cand_cost + 1e-12 < best_cost:
                     best, best_cost = candidate, cand_cost
                     improved = True

@@ -50,9 +50,14 @@ def test_classical_mds_recovers_distances():
 
 def test_coords_for_passthrough():
     inst, _ = thesis_4_1_2()
-    explicit = np.zeros((inst.n_nodes, 2))
+    explicit = np.arange(inst.n_nodes * 2, dtype=float).reshape(inst.n_nodes, 2)
     out = coords_for(inst, explicit)
-    np.testing.assert_array_equal(out, explicit)
+    # Physical rows pass through unchanged; a trailing end-depot row mirrors the depot.
+    assert out.shape == (inst.n_nodes + 1, 2)
+    np.testing.assert_array_equal(out[: inst.n_nodes], explicit)
+    np.testing.assert_array_equal(out[inst.end_depot], explicit[inst.depot])
+    # Idempotent: re-passing the resolved coords returns them unchanged.
+    np.testing.assert_array_equal(coords_for(inst, out), out)
 
 
 def test_coords_for_rejects_wrong_shape():

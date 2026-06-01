@@ -38,7 +38,36 @@ class Instance:
 
     @property
     def n_nodes(self) -> int:
+        """Number of physical nodes (depot + customers); the travel matrices are
+        ``n_nodes x n_nodes``. The synthetic :attr:`end_depot` id is *not* counted
+        here."""
         return self.t.shape[0]
+
+    @property
+    def end_depot(self) -> int:
+        """Synthetic id for the depot as the *end* of the truck route.
+
+        The truck starts at :attr:`depot` and ends at ``end_depot`` -- two distinct
+        ids for the same physical location, so a route ``[depot, ..., end_depot]``
+        can carry a drone rendezvous at the final depot without colliding with a
+        launch at the start depot. Travel times/positions for ``end_depot`` reuse
+        the depot's, via :meth:`truck_time` / :meth:`drone_time` / :meth:`matrix_index`.
+        """
+        return self.n_nodes
+
+    def matrix_index(self, node: int) -> int:
+        """Map a route node to its row/column in the travel matrices.
+
+        Identity for every physical node; :attr:`end_depot` folds back to
+        :attr:`depot`.
+        """
+        return self.depot if node == self.end_depot else node
+
+    def truck_time(self, i: int, j: int) -> float:
+        return float(self.t[self.matrix_index(i), self.matrix_index(j)])
+
+    def drone_time(self, i: int, j: int) -> float:
+        return float(self.d[self.matrix_index(i), self.matrix_index(j)])
 
     @classmethod
     def from_truck_matrix(

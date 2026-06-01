@@ -15,7 +15,8 @@ def thesis_4_1_2() -> tuple[Instance, list[int]]:
     truck (d_ij = t_ij / 2), endurance e = 5, and SL = SR = 0.2.
 
     The initial truck-only TSP (Figure 4.2) is D - 3 - 6 - 5 - 1 - 2 - 4 - D
-    with total time 16.9.
+    with total time 16.9. The route ends at the end-depot id (``instance.end_depot``
+    == 7 here), the second copy of the physical depot.
 
     Returns (instance, initial_tsp_route).
     """
@@ -39,5 +40,5 @@ def thesis_4_1_2() -> tuple[Instance, list[int]]:
         sl=0.2,
         sr=0.2,
     )
-    initial_route = [0, 3, 6, 5, 1, 2, 4, 0]
+    initial_route = [0, 3, 6, 5, 1, 2, 4, instance.end_depot]
     return instance, initial_route
