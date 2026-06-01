@@ -9,5 +9,6 @@ build/
 *.lp
 *.sol
 *.log
+.env
 docs/
 renders/
