@@ -116,7 +116,11 @@ class Solution:
                     + inst.drone_time(s.customer, s.rendezvous)
                 )
                 ready[k] = max(ready[k], drone_arr) + inst.sr
-            if k in launch_pos:
+            if k in launch_pos and k != 0:
+                # Launch service (SL) is charged at every launch except the start
+                # depot: prep there overlaps with loading and is off the critical
+                # path. This mirrors the thesis objective's -SL*omega[h,s] term
+                # (eq 3.7) so the simulated makespan equals the MILP objective.
                 ready[k] += inst.sl
         return arrival, ready
 

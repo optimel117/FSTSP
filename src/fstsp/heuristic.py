@@ -160,9 +160,14 @@ def _calc_cost_uav(
             T_prime_j = _truck_arrival_with_h_removed(sol, h, target_position=j_pos)
             T_i = T[sol.position_of(i_node)]
             delta = T_prime_j - T_i
+            # Launch service is free when the drone is dispatched from the depot:
+            # the truck just leaves, so there's no dispatch penalty there (matches
+            # Solution._simulate and the MILP's -SL*omega[h,s] term). At any other
+            # node SL is a real stop. Recovery (SR) is always charged.
+            sl = 0.0 if i_node == inst.depot else inst.sl
             cost = max(
                 0.0,
-                max(delta + inst.sl + inst.sr, drone_leg + inst.sl + inst.sr) - delta,
+                max(delta + sl + inst.sr, drone_leg + sl + inst.sr) - delta,
             )
             improvement = savings - cost
             if best is None or improvement > best.saving + EPS:
