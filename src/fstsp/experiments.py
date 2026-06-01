@@ -21,10 +21,12 @@ from pathlib import Path
 from fstsp.heuristic import murray_chu
 from fstsp.instance import Instance
 from fstsp.instances import initial_truck_solution, nearest_neighbour_route, two_opt
-from fstsp.milp import solve_milp
 from fstsp.sa import simulated_annealing
 from fstsp.solution import Solution
 from fstsp.validate import is_feasible
+
+# fstsp.milp / gurobipy are imported lazily inside run_milp so the heuristic and SA
+# runners work on machines without Gurobi installed (e.g. the remote worker).
 
 CSV_FIELDS = (
     "method",
@@ -63,6 +65,8 @@ def _solution_stats(sol: Solution) -> tuple[int, int, bool]:
 
 
 def run_milp(inst: Instance, n: int, seed: int, *, time_limit: float, env=None) -> RunRecord:
+    from fstsp.milp import solve_milp  # lazy: keeps gurobipy off the heuristic/SA path
+
     res = solve_milp(inst, time_limit=time_limit, env=env)
     if res.solution is None:
         return RunRecord(

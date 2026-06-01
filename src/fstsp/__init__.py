@@ -6,7 +6,6 @@ from fstsp.instances import (
     random_euclidean,
     two_opt,
 )
-from fstsp.milp import MilpResult, solve_milp
 from fstsp.sa import SAResult, SATrace, simulated_annealing
 from fstsp.solution import Solution, Sortie
 from fstsp.validate import FeasibilityError, is_feasible, validate
@@ -14,7 +13,6 @@ from fstsp.validate import FeasibilityError, is_feasible, validate
 __all__ = [
     "FeasibilityError",
     "Instance",
-    "MilpResult",
     "SAResult",
     "SATrace",
     "Solution",
@@ -25,7 +23,16 @@ __all__ = [
     "nearest_neighbour_route",
     "random_euclidean",
     "simulated_annealing",
-    "solve_milp",
     "two_opt",
     "validate",
 ]
+
+# The exact solver needs gurobipy (the optional "exact" extra). Expose it at the
+# top level when available, but let `import fstsp` work without it so the
+# heuristic/SA path runs on machines with numpy only.
+try:
+    from fstsp.milp import MilpResult, solve_milp
+except ModuleNotFoundError:
+    pass
+else:
+    __all__ += ["MilpResult", "solve_milp"]
