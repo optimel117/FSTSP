@@ -32,6 +32,7 @@ CSV_FIELDS = (
     "method",
     "n",
     "seed",
+    "sa_seed",
     "objective",
     "runtime_s",
     "status",
@@ -45,11 +46,17 @@ CSV_FIELDS = (
 
 @dataclass
 class RunRecord:
-    """One (method, instance) outcome, flattened for CSV."""
+    """One (method, instance, run) outcome, flattened for CSV.
+
+    ``seed`` is the instance seed. ``sa_seed`` is SA's own stochastic seed; it is 0
+    for the deterministic methods (MILP, heuristic) and distinguishes the repeated
+    SA runs of a single instance. The unique key is (method, n, seed, sa_seed).
+    """
 
     method: str  # "milp" | "heuristic" | "sa"
     n: int  # number of customers
     seed: int  # instance seed
+    sa_seed: int  # SA seed (0 for deterministic methods)
     objective: float | None
     runtime_s: float
     status: str
@@ -70,11 +77,11 @@ def run_milp(inst: Instance, n: int, seed: int, *, time_limit: float, env=None) 
     res = solve_milp(inst, time_limit=time_limit, env=env)
     if res.solution is None:
         return RunRecord(
-            "milp", n, seed, None, res.runtime, res.status, False, res.gap, 0, 0, False
+            "milp", n, seed, 0, None, res.runtime, res.status, False, res.gap, 0, 0, False
         )
     dc, ns, feas = _solution_stats(res.solution)
     return RunRecord(
-        "milp", n, seed, res.objective, res.runtime, res.status,
+        "milp", n, seed, 0, res.objective, res.runtime, res.status,
         res.is_optimal, res.gap, dc, ns, feas,
     )
 
@@ -86,7 +93,7 @@ def run_heuristic(inst: Instance, n: int, seed: int) -> RunRecord:
     runtime = time.perf_counter() - t0
     dc, ns, feas = _solution_stats(sol)
     return RunRecord(
-        "heuristic", n, seed, sol.total_completion_time(), runtime,
+        "heuristic", n, seed, 0, sol.total_completion_time(), runtime,
         "heuristic", False, None, dc, ns, feas,
     )
 
@@ -98,7 +105,7 @@ def run_sa(inst: Instance, n: int, seed: int, *, iterations: int, sa_seed: int) 
     runtime = time.perf_counter() - t0
     dc, ns, feas = _solution_stats(res.best)
     return RunRecord(
-        "sa", n, seed, res.best_objective, runtime,
+        "sa", n, seed, sa_seed, res.best_objective, runtime,
         "sa", False, None, dc, ns, feas,
     )
 
@@ -110,19 +117,21 @@ def run_suite(
     seeds: int,
     instance_kwargs: dict | None = None,
     sa_iterations: int = 50_000,
+    sa_repetitions: int = 1,
     milp_time_limit: float = 60.0,
     milp_max_n: int = 12,
     env=None,
     progress=None,
-    skip: set[tuple[str, int, int]] | None = None,
+    skip: set[tuple[str, int, int, int]] | None = None,
 ) -> list[RunRecord]:
     """Run the full experiment bank.
 
     Small sizes get MILP + heuristic + SA; large sizes get heuristic + SA. The
-    MILP is also skipped for any size above ``milp_max_n``. ``progress`` is an
-    optional callback ``(record) -> None`` for live logging / incremental writes.
-    ``skip`` is a set of ``(method, n, seed)`` keys to omit (for resuming a partial
-    run); the instance is only generated when at least one of its methods is due.
+    MILP is also skipped for any size above ``milp_max_n``. SA is stochastic, so it
+    is run ``sa_repetitions`` times per instance with seeds 0..reps-1.
+    ``progress`` is an optional callback ``(record) -> None`` for live logging /
+    incremental writes. ``skip`` is a set of ``(method, n, seed, sa_seed)`` keys to
+    omit (for resuming); the instance is only generated when something is due.
     """
     from fstsp.instances import random_euclidean
 
@@ -140,19 +149,19 @@ def run_suite(
     for n in all_sizes:
         for seed in range(seeds):
             need_milp = (
-                n in run_milp_for and n <= milp_max_n and ("milp", n, seed) not in done
+                n in run_milp_for and n <= milp_max_n and ("milp", n, seed, 0) not in done
             )
-            need_heur = ("heuristic", n, seed) not in done
-            need_sa = ("sa", n, seed) not in done
-            if not (need_milp or need_heur or need_sa):
+            need_heur = ("heuristic", n, seed, 0) not in done
+            sa_todo = [r for r in range(sa_repetitions) if ("sa", n, seed, r) not in done]
+            if not (need_milp or need_heur or sa_todo):
                 continue
             inst = random_euclidean(n_customers=n, seed=seed, **ikwargs)
             if need_milp:
                 emit(run_milp(inst, n, seed, time_limit=milp_time_limit, env=env))
             if need_heur:
                 emit(run_heuristic(inst, n, seed))
-            if need_sa:
-                emit(run_sa(inst, n, seed, iterations=sa_iterations, sa_seed=seed))
+            for sa_seed in sa_todo:
+                emit(run_sa(inst, n, seed, iterations=sa_iterations, sa_seed=sa_seed))
     return records
 
 
@@ -175,7 +184,13 @@ def optimality_gaps(records: list[RunRecord]) -> list[dict]:
         if ref is None or ref <= 0:
             continue
         rows.append(
-            {"method": r.method, "n": r.n, "seed": r.seed, "gap": (r.objective - ref) / ref}
+            {
+                "method": r.method,
+                "n": r.n,
+                "seed": r.seed,
+                "sa_seed": r.sa_seed,
+                "gap": (r.objective - ref) / ref,
+            }
         )
     return rows
 
@@ -192,6 +207,7 @@ def _record_from_row(row: dict) -> RunRecord:
         method=row["method"],
         n=int(row["n"]),
         seed=int(row["seed"]),
+        sa_seed=int(row["sa_seed"]),
         objective=opt_float(row["objective"]),
         runtime_s=float(row["runtime_s"]),
         status=row["status"],
@@ -209,6 +225,6 @@ def read_csv(path: str | Path) -> list[RunRecord]:
         return [_record_from_row(row) for row in csv.DictReader(f)]
 
 
-def done_keys(records: list[RunRecord]) -> set[tuple[str, int, int]]:
-    """(method, n, seed) keys already present, for ``run_suite(skip=...)``."""
-    return {(r.method, r.n, r.seed) for r in records}
+def done_keys(records: list[RunRecord]) -> set[tuple[str, int, int, int]]:
+    """(method, n, seed, sa_seed) keys already present, for ``run_suite(skip=...)``."""
+    return {(r.method, r.n, r.seed, r.sa_seed) for r in records}

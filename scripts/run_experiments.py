@@ -37,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--large", default="15,20,25,30", help="heuristic+SA-only sizes")
     p.add_argument("--seeds", type=int, default=10, help="instances per size (seeds 0..S-1)")
     p.add_argument("--sa-iters", type=int, default=50_000, help="SA iterations per run")
+    p.add_argument("--sa-reps", type=int, default=1, help="SA runs per instance (seeds 0..R-1)")
     p.add_argument("--milp-time-limit", type=float, default=60.0, help="MILP seconds/instance")
     p.add_argument("--milp-max-n", type=int, default=12, help="largest n to run the MILP on")
     p.add_argument("--out", type=Path, default=Path("experiments"), help="output directory")
@@ -178,7 +179,8 @@ def main() -> None:
         writer.writerow(record_to_dict(rec))
         f.flush()
         obj = f"{rec.objective:.1f}" if rec.objective is not None else "none"
-        print(f"[{n_done:>4}] {rec.method:>10} n={rec.n:>2} seed={rec.seed} "
+        sa = f" sa_seed={rec.sa_seed}" if rec.method == "sa" else ""
+        print(f"[{n_done:>4}] {rec.method:>10} n={rec.n:>2} seed={rec.seed}{sa} "
               f"obj={obj:>9} rt={rec.runtime_s:6.2f}s")
 
     try:
@@ -187,6 +189,7 @@ def main() -> None:
             large_sizes=_sizes(args.large),
             seeds=args.seeds,
             sa_iterations=args.sa_iters,
+            sa_repetitions=args.sa_reps,
             milp_time_limit=args.milp_time_limit,
             milp_max_n=args.milp_max_n,
             env=env,
