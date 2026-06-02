@@ -18,7 +18,6 @@ customers).
 
 from __future__ import annotations
 
-import itertools
 from dataclasses import dataclass
 
 import gurobipy as gp
@@ -167,16 +166,10 @@ def _solve(
             gp.quicksum(y[i, j] for (_, j) in out_arcs[i]) <= 1,
             name=f"truck_visit_once_{i}",
         )
-    # subtour elimination over customer subsets (exponential; small instances only)
-    for r in range(2, len(C) + 1):
-        for subset in itertools.combinations(C, r):
-            S = set(subset)
-            inner = gp.quicksum(y[i, j] for i in S for j in S if (i, j) in A)
-            for q in S:
-                model.addConstr(
-                    inner <= gp.quicksum(1 - theta[h] for h in S if h != q),
-                    name=f"subtour_{'_'.join(map(str, sorted(S)))}_q{q}",
-                )
+    # Subtour elimination is separated lazily (see _make_subtour_callback): the
+    # generalised cut family is exponential in |C|, so instead of enumerating every
+    # customer subset up front we add only the cuts that an integer truck solution
+    # actually violates. This is what lets the model reach n=20/40.
 
     # ---- truck-drone linking (3.11)-(3.13) ----------------------------------
     for h in C:
@@ -299,7 +292,8 @@ def _solve(
     model.Params.MIPGap = mip_gap
     model.Params.Seed = seed
     model.Params.OutputFlag = 1 if verbose else 0
-    model.optimize()
+    model.Params.LazyConstraints = 1  # required when a callback adds lazy cuts
+    model.optimize(_make_subtour_callback(s, C, A, y, theta))
 
     status = _STATUS_NAMES.get(model.Status, f"status_{model.Status}")
     runtime = model.Runtime
@@ -323,6 +317,64 @@ def _solve(
         runtime=runtime,
         status=status,
     )
+
+
+def _make_subtour_callback(
+    s: int,
+    C: list[int],
+    A: list[tuple[int, int]],
+    y: gp.tupledict,
+    theta: gp.tupledict,
+):
+    """Build a Gurobi MIPSOL callback that lazily separates subtour cuts.
+
+    On every integer-feasible truck solution it walks the route from the start
+    depot ``s`` to the end depot ``t``; any customer that still carries an
+    outgoing truck arc but was not reached on that walk lies on a cycle
+    disconnected from the depot. For each such cycle ``S`` it adds the
+    formulation's generalised cut for every ``q in S``::
+
+        sum_{i,j in S} y[i,j] <= sum_{h in S, h!=q} (1 - theta[h])
+
+    which forbids the cycle unless enough of its nodes are drone-served.
+    """
+    arc_set = set(A)
+
+    def callback(model: gp.Model, where: int) -> None:
+        if where != GRB.Callback.MIPSOL:
+            return
+        yval = model.cbGetSolution(y)
+        succ = {i: j for (i, j) in A if yval[i, j] > 0.5}
+
+        # Walk the main route s -> ... -> t and mark every node it reaches.
+        on_path: set[int] = set()
+        cur = s
+        while cur in succ:
+            cur = succ[cur]
+            if cur in on_path:
+                break
+            on_path.add(cur)
+
+        seen: set[int] = set()
+        for start in C:
+            if start in on_path or start in seen or start not in succ:
+                continue
+            cycle: list[int] = []
+            c = start
+            while c in succ and c not in cycle:
+                cycle.append(c)
+                c = succ[c]
+            if c not in cycle:  # an open chain, not a closed subtour
+                seen.update(cycle)
+                continue
+            S = cycle[cycle.index(c):]
+            seen.update(S)
+            Sset = set(S)
+            inner = gp.quicksum(y[i, j] for i in Sset for j in Sset if (i, j) in arc_set)
+            for q in Sset:
+                model.cbLazy(inner <= gp.quicksum(1 - theta[h] for h in Sset if h != q))
+
+    return callback
 
 
 def _extract_solution(
