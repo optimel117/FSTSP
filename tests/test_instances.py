@@ -42,12 +42,13 @@ def test_random_euclidean_distance_consistency():
 
 
 def test_random_euclidean_depot_center_vs_corner():
+    # Same seed => identical customer cloud; only the depot (node 0) moves, so the
+    # two hub positions can be compared on the exact same customers.
     centered = random_euclidean(n_customers=20, seed=3, depot_position="center")
     cornered = random_euclidean(n_customers=20, seed=3, depot_position="corner")
-    np.testing.assert_array_equal(centered.coords[0], [0.0, 0.0])
-    np.testing.assert_array_equal(cornered.coords[0], [0.0, 0.0])
-    assert centered.coords[1:].min() < 0  # centered → some negatives
-    assert cornered.coords[1:].min() >= 0  # cornered → all in [0, side]
+    np.testing.assert_array_equal(centered.coords[1:], cornered.coords[1:])
+    np.testing.assert_array_equal(centered.coords[0], [0.0, 0.0])  # center of the cloud
+    np.testing.assert_array_equal(cornered.coords[0], [-15.0, -15.0])  # a corner of it
 
 
 def test_random_euclidean_rejects_bad_args():

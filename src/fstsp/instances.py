@@ -48,14 +48,18 @@ def random_euclidean(
     if depot_position not in {"center", "corner"}:
         raise ValueError("depot_position must be 'center' or 'corner'")
 
+    # The seed alone determines the customer cloud. Callers decorrelate sizes by
+    # baking n into the seed (the experiment harness uses 2026 + 1000*n + r), so a
+    # bigger instance is NOT a superset of a smaller one with the same replication.
+    # Endurance is not part of the seed and the hub only moves the depot, so for a
+    # fixed seed the customer cloud is identical across endurance values and across
+    # center/corner hubs -- the clean basis for comparing those two factors.
     rng = np.random.default_rng(seed)
+    half = area_side_km / 2
     coords = np.empty((n_customers + 1, 2), dtype=float)
-    if depot_position == "center":
-        coords[0] = (0.0, 0.0)
-        coords[1:] = rng.uniform(-area_side_km / 2, area_side_km / 2, size=(n_customers, 2))
-    else:
-        coords[0] = (0.0, 0.0)
-        coords[1:] = rng.uniform(0.0, area_side_km, size=(n_customers, 2))
+    coords[1:] = rng.uniform(-half, half, size=(n_customers, 2))
+    # Same customers either way; the hub sits at the cloud's center or at a corner.
+    coords[0] = (0.0, 0.0) if depot_position == "center" else (-half, -half)
 
     diffs = coords[:, None, :] - coords[None, :, :]
     dist = np.linalg.norm(diffs, axis=-1)
