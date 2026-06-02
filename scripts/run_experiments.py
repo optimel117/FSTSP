@@ -29,7 +29,6 @@ from fstsp.experiments import (
     ENDURANCES,
     HUBS,
     REPLICATIONS,
-    SIZES,
     RunRecord,
     done_keys,
     optimality_gaps,
@@ -37,6 +36,7 @@ from fstsp.experiments import (
     record_to_dict,
     run_suite,
     write_instances_csv,
+    write_results_with_gaps,
 )
 
 
@@ -50,16 +50,19 @@ def _ints(spec: str) -> tuple[int, ...]:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--sizes", default=",".join(map(str, SIZES)), help="customer-set sizes n")
+    p.add_argument("--sizes", default="10,20,30,40", help="customer-set sizes n")
     p.add_argument("--reps", type=int, default=len(REPLICATIONS), help="replications per size")
     p.add_argument("--endurances", default=",".join(f"{e:g}" for e in ENDURANCES),
                    help="drone endurance D_tl values (seconds)")
     p.add_argument("--hubs", default=",".join(HUBS), help="depot positions")
     p.add_argument("--sa-iters", type=int, default=100_000, help="SA iterations per run")
-    p.add_argument("--sa-reps", type=int, default=1, help="SA runs per config (seeds 0..R-1)")
-    p.add_argument("--milp-time-limit", type=float, default=600.0, help="MILP seconds/config")
+    p.add_argument("--sa-reps", type=int, default=10, help="SA runs per config (seeds 0..R-1)")
+    p.add_argument("--hybrid-reps", type=int, default=None,
+                   help="hybrid-SA runs per config (default: same as --sa-reps)")
+    p.add_argument("--milp-time-limit", type=float, default=3600.0, help="MILP seconds/config")
     p.add_argument("--milp-max-n", type=int, default=None, help="largest n to run the MILP on")
-    p.add_argument("--methods", default="milp,heuristic,sa", help="subset of methods to run")
+    p.add_argument("--methods", default="milp,heuristic,sa,hybrid_sa",
+                   help="subset of methods to run")
     p.add_argument("--out", type=Path, default=Path("experiments"), help="output directory")
     p.add_argument("--no-plots", action="store_true", help="skip figure generation")
     p.add_argument("--fresh", action="store_true", help="ignore existing results.csv; don't resume")
@@ -129,7 +132,7 @@ def make_plots(records: list[RunRecord], out: Path) -> None:
     for r in records:
         by_key[(r.method, r.n)].append(r.runtime_s)
     fig, ax = plt.subplots(figsize=(6, 4))
-    for method in ("milp", "heuristic", "sa"):
+    for method in ("milp", "heuristic", "sa", "hybrid_sa"):
         pts = sorted((n, statistics.mean(v)) for (m, n), v in by_key.items() if m == method)
         if pts:
             xs, ys = zip(*pts, strict=True)
@@ -162,6 +165,49 @@ def make_plots(records: list[RunRecord], out: Path) -> None:
         ax.legend()
         fig.tight_layout()
         fig.savefig(out / "endurance_hub.png", dpi=150)
+        plt.close(fig)
+
+    # 4) Run-to-run spread of SA and Hybrid SA, averaged by size (Rafael's spec):
+    # for each instance take the mean completion time over its seeds, express each
+    # run's max/min as a % deviation from that mean, then average those %s over all
+    # instances of a size -- so the sizes can be compared. One series per method.
+    spread_methods = [m for m in ("sa", "hybrid_sa") if any(r.method == m for r in records)]
+    if spread_methods:
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        styles = {"sa": ("C0", "SA"), "hybrid_sa": ("C1", "Hybrid SA")}
+        all_ns: set[int] = set()
+        for mi, method in enumerate(spread_methods):
+            runs: dict[tuple, list[float]] = defaultdict(list)
+            for r in records:
+                if r.method == method and r.objective is not None:
+                    runs[(r.n, r.replication, r.endurance, r.hub)].append(r.objective)
+            by_n_max: dict[int, list[float]] = defaultdict(list)
+            by_n_min: dict[int, list[float]] = defaultdict(list)
+            for (n, *_), objs in runs.items():
+                mean = statistics.mean(objs)
+                if len(objs) < 2 or mean <= 0:
+                    continue
+                by_n_max[n].append((max(objs) - mean) / mean * 100)
+                by_n_min[n].append((min(objs) - mean) / mean * 100)
+            ns = sorted(by_n_max)
+            if not ns:
+                continue
+            all_ns.update(ns)
+            up = [statistics.mean(by_n_max[n]) for n in ns]
+            lo = [statistics.mean(by_n_min[n]) for n in ns]
+            color, label = styles.get(method, ("C2", method))
+            xs = [n + (mi - 0.5) * 0.6 for n in ns]  # offset so the two methods don't overlap
+            ax.errorbar(xs, [0] * len(ns), yerr=[[-v for v in lo], up], fmt="o",
+                        capsize=5, lw=1.5, color=color, label=label)
+        ax.axhline(0, color="grey", lw=0.8, ls="--")
+        ax.set_xlabel("number of customers n")
+        ax.set_ylabel("avg % deviation from per-instance mean\n(min .. max over seeds)")
+        ax.set_title("Run-to-run spread of SA / Hybrid SA, averaged by size")
+        if all_ns:
+            ax.set_xticks(sorted(all_ns))
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(out / "sa_spread.png", dpi=150)
         plt.close(fig)
 
 
@@ -224,6 +270,7 @@ def main() -> None:
             methods=methods,
             sa_iterations=args.sa_iters,
             sa_repetitions=args.sa_reps,
+            hybrid_repetitions=args.hybrid_reps,
             milp_time_limit=args.milp_time_limit,
             milp_max_n=args.milp_max_n,
             env=env,
@@ -237,6 +284,12 @@ def main() -> None:
 
     records = read_csv(csv_path)
     print(f"\n{len(records)} rows total -> {csv_path}")
+
+    # Deliverable for Rafael: the same rows plus a per-row gap_vs_milp column.
+    deliverable = args.out / "results_with_gaps.csv"
+    write_results_with_gaps(records, deliverable)
+    print(f"deliverable (with per-row gap) -> {deliverable}")
+
     print_summary(records)
 
     if not args.no_plots:

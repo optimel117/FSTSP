@@ -173,6 +173,27 @@ def run_sa(
     )
 
 
+def run_hybrid_sa(
+    inst: Instance, n: int, r: int, hub: str, endurance: float, *, iterations: int, sa_seed: int
+) -> RunRecord:
+    """SA seeded with the Murray-Chu construction instead of a truck-only tour.
+
+    Construction is deterministic but SA is stochastic, so the hybrid is still
+    stochastic and is repeated with distinct ``sa_seed`` like plain SA.
+    """
+    route = two_opt(nearest_neighbour_route(inst), inst)
+    start = murray_chu(inst, route)  # warm-start SA from the heuristic solution
+    t0 = time.perf_counter()
+    res = simulated_annealing(start, iterations=iterations, seed=sa_seed)
+    runtime = time.perf_counter() - t0
+    ns, route_str, sorties, feas = _stats(res.best)
+    return RunRecord(
+        "hybrid_sa", n, r, make_seed(n, r), hub, endurance, sa_seed,
+        res.best_objective, runtime, "hybrid_sa", False, None,
+        ns, route_str, sorties, feas,
+    )
+
+
 def run_suite(
     *,
     sizes: tuple[int, ...] = SIZES,
@@ -180,10 +201,11 @@ def run_suite(
     endurances: tuple[float, ...] = ENDURANCES,
     hubs: tuple[str, ...] = HUBS,
     instance_kwargs: dict | None = None,
-    methods: tuple[str, ...] = ("milp", "heuristic", "sa"),
+    methods: tuple[str, ...] = ("milp", "heuristic", "sa", "hybrid_sa"),
     sa_iterations: int = 100_000,
-    sa_repetitions: int = 1,
-    milp_time_limit: float = 600.0,
+    sa_repetitions: int = 10,
+    hybrid_repetitions: int | None = None,
+    milp_time_limit: float = 3600.0,
     milp_max_n: int | None = None,
     env=None,
     progress=None,
@@ -192,10 +214,11 @@ def run_suite(
     """Run the full crossed grid (size x replication x endurance x hub).
 
     Each instance config gets the methods in ``methods`` (MILP skipped when no
-    ``env``, when "milp" is not requested, or when ``n > milp_max_n``). SA is
-    stochastic, so it is repeated ``sa_repetitions`` times with seeds 0..reps-1.
-    ``progress`` is an optional ``(record) -> None`` callback for live logging /
-    incremental writes; ``skip`` is a set of done keys for resuming.
+    ``env``, when "milp" is not requested, or when ``n > milp_max_n``). SA and the
+    hybrid SA are stochastic, so each is repeated with seeds 0..reps-1
+    (``hybrid_repetitions`` defaults to ``sa_repetitions``). ``progress`` is an
+    optional ``(record) -> None`` callback for live logging / incremental writes;
+    ``skip`` is a set of done keys for resuming.
     """
     from fstsp.instances import random_euclidean
 
@@ -205,11 +228,16 @@ def run_suite(
     want_milp = "milp" in methods and env is not None
     want_heur = "heuristic" in methods
     want_sa = "sa" in methods
+    want_hybrid = "hybrid_sa" in methods
+    hybrid_reps = sa_repetitions if hybrid_repetitions is None else hybrid_repetitions
 
     def emit(rec: RunRecord) -> None:
         records.append(rec)
         if progress is not None:
             progress(rec)
+
+    def todo(method: str, n: int, r: int, e: float, hub: str, reps: int) -> list[int]:
+        return [k for k in range(reps) if (method, n, r, e, hub, k) not in done]
 
     for n in sorted(sizes):
         for r in sorted(replications):
@@ -222,12 +250,11 @@ def run_suite(
                         and ("milp", n, r, endurance, hub, 0) not in done
                     )
                     need_heur = want_heur and ("heuristic", n, r, endurance, hub, 0) not in done
-                    sa_todo = (
-                        [k for k in range(sa_repetitions)
-                         if ("sa", n, r, endurance, hub, k) not in done]
-                        if want_sa else []
+                    sa_todo = todo("sa", n, r, endurance, hub, sa_repetitions) if want_sa else []
+                    hyb_todo = (
+                        todo("hybrid_sa", n, r, endurance, hub, hybrid_reps) if want_hybrid else []
                     )
-                    if not (need_milp or need_heur or sa_todo):
+                    if not (need_milp or need_heur or sa_todo or hyb_todo):
                         continue
                     inst = random_euclidean(
                         n_customers=n, seed=seed,
@@ -242,6 +269,9 @@ def run_suite(
                     for sa_seed in sa_todo:
                         emit(run_sa(inst, n, r, hub, endurance,
                                     iterations=sa_iterations, sa_seed=sa_seed))
+                    for sa_seed in hyb_todo:
+                        emit(run_hybrid_sa(inst, n, r, hub, endurance,
+                                           iterations=sa_iterations, sa_seed=sa_seed))
     return records
 
 
@@ -281,6 +311,47 @@ def optimality_gaps(records: list[RunRecord]) -> list[dict]:
 
 def record_to_dict(rec: RunRecord) -> dict:
     return asdict(rec)
+
+
+# Deliverable schema: the raw log fields plus a per-row optimality gap vs the MILP
+# (Rafael wants the heuristics' gap in the sheet, not just the MILP's own gap).
+_GAP_AFTER = CSV_FIELDS.index("mip_gap") + 1
+DELIVERABLE_FIELDS = (*CSV_FIELDS[:_GAP_AFTER], "gap_vs_milp", *CSV_FIELDS[_GAP_AFTER:])
+
+
+def _milp_optimum(records: list[RunRecord]) -> dict[tuple, float]:
+    return {
+        (r.n, r.replication, r.endurance, r.hub): r.objective
+        for r in records
+        if r.method == "milp" and r.proven_optimal and r.objective is not None
+    }
+
+
+def write_results_with_gaps(records: list[RunRecord], path: str | Path) -> int:
+    """Write the deliverable CSV: every row plus its ``gap_vs_milp``.
+
+    For MILP rows the gap is the solver's own MIP gap (0 when proven). For
+    heuristic/SA/hybrid rows it is ``(obj - milp_opt) / milp_opt`` against the
+    proven MILP optimum of the same (n, replication, endurance, hub); blank when
+    no proven optimum exists (e.g. n with no MILP). Returns rows written.
+    """
+    milp_opt = _milp_optimum(records)
+    with Path(path).open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=DELIVERABLE_FIELDS)
+        w.writeheader()
+        for rec in records:
+            d = asdict(rec)
+            if rec.method == "milp":
+                d["gap_vs_milp"] = rec.mip_gap
+            else:
+                ref = milp_opt.get((rec.n, rec.replication, rec.endurance, rec.hub))
+                d["gap_vs_milp"] = (
+                    (rec.objective - ref) / ref
+                    if ref and ref > 0 and rec.objective is not None
+                    else None
+                )
+            w.writerow(d)
+    return len(records)
 
 
 def _record_from_row(row: dict) -> RunRecord:

@@ -55,12 +55,29 @@ def test_run_suite_without_milp_runs_heuristic_and_sa_only() -> None:
         hubs=("center",),
         methods=("heuristic", "sa"),  # no MILP => no Gurobi dependency
         sa_iterations=1000,
+        sa_repetitions=1,
     )
     methods = {r.method for r in records}
     assert methods == {"heuristic", "sa"}
     # 2 sizes * 2 reps * 1 endurance * 1 hub * (1 heuristic + 1 sa)
     assert len(records) == 2 * 2 * 1 * 1 * 2
     assert all(r.feasible for r in records)
+
+
+def test_hybrid_sa_runs_and_repeats_with_its_own_seeds() -> None:
+    records = run_suite(
+        sizes=(7,),
+        replications=(1,),
+        endurances=(1950.0,),
+        hubs=("center",),
+        methods=("hybrid_sa",),
+        sa_iterations=1000,
+        sa_repetitions=4,  # hybrid_repetitions defaults to this
+    )
+    assert {r.method for r in records} == {"hybrid_sa"}
+    assert len(records) == 4
+    assert {r.sa_seed for r in records} == {0, 1, 2, 3}
+    assert all(r.feasible and r.objective and r.objective > 0 for r in records)
 
 
 def test_run_suite_crosses_endurance_and_hub() -> None:
